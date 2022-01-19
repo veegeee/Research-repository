@@ -1,0 +1,271 @@
+---
+title: "Bayesian regression analysis"
+author: "Sander van Gestel"
+output: html_document
+bibliography: [bibliography.bib]
+
+---
+
+<style type="text/css">
+  body{
+  font-size: 12pt;
+  font-family: Cambria;
+  line-height:1.3;
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+|   Imagine yourself drinking a glass of wine on a camping in France. Does it taste good? Do you think that the quality of the wine is good? If so, why is the wine of a good quality? The last question is an interesting one. It could be fun to research the factors that potentially influence the quality of wine and it is exactly what I will do. More specifically, the effect of the concentration of chloride and the concentration of sulphate on quality of wine will be investigated. So, the research question is: how do the concentration of chloride and the concentration of sulphate affect the quality of wine? 
+|   A dataset that contains information on 1599 wines will be used for this purpose. For each wine the dataset contains information on the amount of chloride in the wine (grams of chloride per liter wine), the amount of sulphate in the wine (grams of sulphate per liter wine) and the quality of the wine. The quality of the wine is expressed as an integer on the range from zero to ten. 
+|   The data will be used to answer the research question within a Bayesian framework. First, the posterior distribution of the parameters will be sampled by the means of a GIBBS sampler. The parameters of interest are: the intercept, denoted by B~0~ throughout the report, the regression coefficient for the concentration of chloride, denoted by B~1~ throughout the report, the regression coefficient for the concentration of sulphate, denoted by B~2~ throughout the report, and the residual variance, denoted by variance throughout the report. Estimates of these parameters will be discussed in the first section. The GIBBS sampler and the convergence of the sampler will also be discussed in the first section. In the second section it will be illustrated how the assumption of normally distributed residuals can be tested within a Bayesian framework. In the third section the fit of the model including the two predictors will be compared to less complex models. Also, different hypothesis concerning the direction of the effects will be tested using the Bayes factor. In the fourth section a conclusion will be drawn. In the fifth section Bayesian and frequentist approaches will be compared. More specifically, the performed methods will be compared to methods that are part of linear regression under the frequentist umbrella. Analysis in this research will be performed by means of the statistical software R [@R-base].
+
+## Estimation, MH, convergence, interpretation of estimates and intervals
+In this section the estimation of the model, the convergence of the model and the parameter estimates will be discussed.
+
+### Estimation
+|   The research question is: how do the concentration of chloride and the concentration of sulphate affect the quality of wine? To be able to answer the question we can test the following model: 
+$y_i ∼ N(B_0 + B_1x_{1i} + B_2x_{2i}, \, \sigma^2)$, where y denotes the quality of wine, x~1~ the concentration of chloride and x~2~ the concentration of sulphate. The likelihood of the data was defined according to this model. The likelihood of the data was combined with conjugate priors to get desired conditional posterior distributions, that is normal distributions for the Betas and an inverse gamma distribution for the variance. I chose vague priors for the betas and the variance. This has as a consequence that the results solely rely on the data. The following priors were used:
+
+<ul>
+<li> $B_0 \sim \mathcal{N}(0, \, 1000)$;</li>
+<li> $B_1 \sim \mathcal{N}(0, \, 1000)$;</li>
+<li> $B_2 \sim \mathcal{N}(0, \, 1000)$;</li>
+<li> $\sigma^2 \sim \mathcal {IG}(0.001, \, 0.001)$.</li>
+</ul>
+
+|   I used a Gibbs sampler to sample from the conditional posteriors of the parameters of interest. Iteratively sampling from the conditional posteriors provides an approximation of the posterior distribution. It should be noted that a fixed regression was performed. This means that the scores on the predictors that are used at each iteration of the Gibbs sampler are just the observed scores. In the Gibbs sampler a Metropolis-Hastings step was implemented for the estimation of B~1~. The implemented Metropolis-Hastings step consists of several steps: 
+<ol>
+<li>A candidate value for B~1~ was sampled from a proposal distribution. 
+$B_1^* \sim \mathcal{N}(B_{1, \,t-1}, \, 0.01)$, where B~1,t-1~ is the previously retained value for B~1~.</li>
+<li>A random value from an uniform distribution was sampled: $u \sim \mathcal{U}(0, \, 1)$.</li>
+<li>The proposal distribution was ignored when computing the acceptance ratio. Since the proposal distribution is symmetric it disappears from the acceptance ratio. Then, to compute the acceptance ratio, the (proportional) posterior is needed. I used the proportional posterior distribution to illustrate that it gives correct results. The logarithm^+^ of the conditional likelihood of B~1~^#^ and the logarithm of the conditional likelihood of B~1,t-1~ were computed. Then, the logarithms of the prior probability of B~1~^#^  and the prior probability of B~1,t-1~ were computed.</li> 
+<li>The sum of the logarithm of the conditional likelihood of B~1,t-1~ and the logarithm of the prior probability of B~1,t-1~ was subtracted from the sum of the logarithm of the conditional likelihood of B~1~^#^ and the logarithm of the prior probability of B~1~^#^. The result was compared to the logarithm of u. If the logarithm of u was bigger than the logarithm of the acceptance ratio the B~1,t-1~ was retained. Otherwise, B~1~^#^ was retained.</li>
+</ol>
+^+^The logarithms of the probabilities were summed because multiplying probabilities yielded computational issues.
+
+### Convergence
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+source('functions.R')
+dataset<-read.csv('winequality-red.csv', sep=',')
+dataset<-dataset[,c(5,10, 12)]
+#two chains are run with sulphate and chlorides as predictors to assess convergence
+yo<-sampled_posterior(dataset, 3, c(1,2), 10000, initial_values = c(-1,-1,-1,1))
+ya<-sampled_posterior(dataset, 3, c(1,2), 10000, initial_values = c(3,3,3,1), seed = 167)
+```
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.align='center'}
+#trace plots are created for all the parameters
+library(ggplot2)
+library(gridExtra)
+library(grid)
+#first a dataframe is created containing the sampled values of a particular parameter, the iteration at which is was sampled and
+#the chain it belongs to
+#then with the ggplot() trace plots are created
+data_b0<-data.frame(values=c(yo$beta0, ya$beta0), Chain= c(rep('Chain1',nrow(yo)), rep('Chain2', nrow(yo))), iteration= rep(seq(1,nrow(yo), by=1),2))
+plot1<-ggplot()+ layer(data = data_b0, stat= 'identity', geom = 'line', mapping = aes(x=iteration, y=values, color=Chain), position = 'identity')+ 
+  xlab('Iteration') + ylab(expression(B[0]))
+data_b1<-data.frame(values=c(yo$beta1, ya$beta1), Chain= c(rep('Chain1',nrow(yo)), rep('Chain2', nrow(yo))), iteration= rep(seq(1,nrow(yo), by=1),2))
+plot2<-ggplot()+ layer(data = data_b1, stat= 'identity', geom = 'line', mapping = aes(x=iteration, y=values, color=Chain), position = 'identity')+ 
+  xlab('Iteration') + ylab(expression(B[1])) 
+data_b2<-data.frame(values=c(yo$beta2, ya$beta2), Chain= c(rep('Chain1',nrow(yo)), rep('Chain2', nrow(yo))), iteration= rep(seq(1,nrow(yo), by=1),2))
+plot3<-ggplot()+ layer(data = data_b2, stat= 'identity', geom = 'line', mapping = aes(x=iteration, y=values, color=Chain), position = 'identity') + 
+  xlab('Iteration') + ylab(expression(B[2]))
+data_var<- data.frame(values=c(yo$var, ya$var), Chain= c(rep('Chain1',nrow(yo)), rep('Chain2', nrow(yo))), iteration= rep(seq(1,nrow(yo), by=1),2))
+plot4<-ggplot()+ layer(data = data_var, stat= 'identity', geom = 'line', mapping = aes(x=iteration, y=values, color=Chain), position = 'identity')+ 
+  xlab('Iteration') + ylab('Var') 
+
+#makes sure that the plots are showed all at once
+grid.arrange(plot1, plot2, plot3, plot4, ncol = 2, nrow=2, top = textGrob("Figure 1: traceplots of the sampled parameters",gp=gpar(fontsize=12)))
+```
+
+|   In order to test the convergence of the sampler two chains of length 10,000 were sampled with divergent starting values. The starting values for chain 1 were -1 for B~0~, -1 for B~1~, -1 for B~2~ and 1 for the variance. The starting values for chain 1 were 3 for B~0~, 3 for B~1~, 3 for B~2~ and 1 for the variance. 
+As can be seen in figure 1, the values of both chains overlap for each parameter. This indicates that the sampler converges. In other words, with enough iterations a reliable representation of the posterior distribution is obtained. It should be noted that for the different parameters a different number of iterations is needed in order to get a reliable representation of the marginal posterior distribution. For example, the traceplot of the variance is more dense than the traceplot of the first regression coefficient. Also, the chains do more overlap for the variance than for the first regression coefficient. This indicates that more iterations are required to get a reliable representation of the marginal posterior distribution for B~1~ than for the variance. 
+|   This is also reflected by the Gelman-Rubin statistics, which were plotted for both B~2~ and the variance, but are not shown in this report. The Gelman-Rubin statistic for the variance approached 1 after 4,000 samples. The Gelman-Rubin statistic for B~1~ approached 1 after 6,000 samples. The Gelman-Rubin statistics for the other parameters also approached 1 well before 10,000 iterations. This also indicates that the sampler converges to the true value for all parameters.
+
+```{r, echo=FALSE, fig.show='hide'}
+#function run for all the parameters
+gr_beta0<-gelman_rubin(yo$beta0, ya$beta0)
+gr_beta1<-gelman_rubin(yo$beta1, ya$beta1)
+gr_beta2<-gelman_rubin(yo$beta2, ya$beta2)
+gr_var<-gelman_rubin(yo$var, ya$var)
+iterations_gelman_rubin<-seq(500,10000, 500) #used for x-axis of the plots
+par(mfrow=c(1,2)) #put plots next to each other
+#statistics are plotted for beta1 and variance
+plot(iterations_gelman_rubin, gr_beta1, type = 'l', main = 'Gelman-Rubin plot Beta1', xlab = 'Iteration', ylab = 'Gelman-Rubin Statistic')
+plot(iterations_gelman_rubin, gr_var, type = 'l', main = 'Gelman-Rubin plot Var', xlab = 'Iteration', ylab = 'Gelman-Rubin Statistic')
+par(mfrow=c(1,1))
+```
+
+### Parameter estimates
+|   Table 1 presents statistics that were derived from a posterior distribution of length 100,000. So for the results a posterior distribution of length 100,000 is used and not the two chains that were used to assess convergence. The posterior mean equals the mean over the posterior distribution. These estimates can be used as estimates for the parameters. The 95% central credible interval gives a range of plausible values for the parameter. For example, in the posterior distribution 95% of the values of the variance lie between 0.54 and 0.62. The posterior SD is a measure of the spread. If it is a high value, the values of the posterior distribution are divergent. The posterior mean of B~1~ equals -4.46 which indicates that the effect of the concentration of chloride on the wine quality is negative. The posterior mean of B~2~ equals 1.66 which indicates that the effect of the concentration of sulphate on the wine quality is positive. Also, the boundaries of the 95% central credible intervals of B~1~ and B~2~ are far away from zero. This could be an indication of the presence of a relationship between the predictors and the wine quality. 
+
+```{r, echo=FALSE}
+##### This the posterior from which parameter estimates and p-value are calculated and for which dic is calculated
+posterior<-sampled_posterior(dataset, 3, c(1,2), iterations=100000, initial_values = c(1,1,1,1), burnin = 1000)
+#### D. Parameter estimates
+##the posterior means and central credible intervals and standard deviations are calculated
+post_means<-colMeans(posterior)
+cci_beta0<-quantile(posterior$beta0, c(0.025, 0.975))
+cci_beta1<-quantile(posterior$beta1, c(0.025, 0.975))
+cci_beta2<-quantile(posterior$beta2, c(0.025, 0.975))
+cci_var<-quantile(posterior$var, c(0.025, 0.975))
+
+#standard deviations calculated
+standard_deviation<-function(theta){
+  mean_theta<-mean(theta)
+  squared_differences<-(theta-mean_theta)^2
+  #to get standard deviation of posterior, divide the sum of squares by the number of sampled thetas, not by: number of sampled thetas - 1.
+  standard_deviation<-sqrt(sum(squared_differences)/length(theta))
+  return(standard_deviation)
+}
+
+#standard deviations for the posterior
+sd<-data.frame(parameter=c('Beta0', 'Beta1', 'Beta2', 'Var'), sd=rep(0,4))
+for(i in 1:4){
+  sd[i,2]<- standard_deviation(posterior[,i])}
+```
+
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+library(knitr)
+library(kableExtra)
+table1<-data.frame(a= c('B0', 'B1', 'B2', 'Variance'), b = c(4.93, -4.46, 1.66, 0.57), c = c('[4.78; 5.09]', '[-5.28; -3.61]', '[1.42; 1.89]', '[0.54;0.62]'), d = c(0.08, 0.43, 0.12, 0.02))
+colnames(table1)<-c('Parameters', 'Posterior mean', '95 % CCI', 'Posterior SD')
+
+kable(table1, align = 'l', caption = "Table 1: parameter estimates") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+```
+
+
+## Posterior predictive check
+|   Linear regression comes with model assumptions. In this section the assumption of normally distributed residuals will be tested. The null hypothesis that will be tested is:
+H0: $y_i=B_0 + B_1x_{1i} + B_2x_{2i} + e_i$, where $e_i \sim \mathcal{N}(0, \, \sigma^2)$.
+The mean and the median of a perfect normal distribution are equal. This provides an opportunity for testing normality. If data was approximately normally distributed you would expect that the mean and the median of the data are close to each other. Similarly, if data was not normally distributed you would expect that the median and mean are not close to each other. Then, we could use the difference between the mean and median of residuals of data that was generated by our model, which implies normally distributed residuals. If our observed data yields similar differences between the median and mean of the residuals as the generated data, we could say that the assumption of normally distributed residuals is met. In the description of the steps that were followed it will become clearer how the test statistic was obtained.
+|   Firstly, each theta in the sampled posterior distribution was used to sample a score on the dependent variable for each wine brand. The sampled posterior distribution counts 100,000 sampled thetas. So for each wine a score on the dependent variable was sampled 100,000 times. The samples were drawn from a normal distribution. The mean of the distribution equals the predicted value on the dependent variable for each wine. The predicted value is simply the expected score on the dependent variable given a particular theta and constant observed scores on the predictors. So the mean for a wine was different for different thetas. 
+Secondly, residuals were calculated for the sampled scores and for the observed scores. The residuals for the sampled scores equal the sampled score at iteration i minus the predicted score at iteration i. The residuals for the observed scores on the dependent variable equal the constant observed scores minus the predicted scores at iteration i. 
+|   Thirdly, at each iteration the mean and median for both the residuals of observed scores and residuals of sampled scores were calculated. Then the absolute value of the difference between the mean and median was calculated for both the observed and sampled scores. This value served as the test statistic and can be denoted by: $T = |mean \ residuals – median \ residuals|$.
+|   Finally, the p-value equals the number of times the absolute value of the difference was bigger for the sampled values than for the observed values, divided by the total number of test statistics calculated. This can be denoted by: $P = P(T_{Sampled} > T_{Observed})$.
+|   The resulting p-value equals 0.34. If the null hypothesis held, then a p-value around 0.5 would be expected. If the p-value was around 0.5 the difference between the median and mean of the residuals of the observed data could be expected if the data was generated by the hypothesized model with normal distributed residuals. The obtained p-value of 0.34 is not too far away from 0.5. So I would conclude that the difference between the mean and median of the residuals for observed data is not large enough to reject the null hypothesis. Thus, the assumption of normally distributed residuals is not violated.
+
+```{r, echo=FALSE}
+p_value<-p_value(posterior, dataset, c(1,2), 3)
+
+```
+
+## Model fit and hypothesis testing
+
+### DIC
+|   The DIC can be used to compare the hypothesized model against alternative models. The model with the concentration of chloride and sulphate as predictors was compared against less complex models. The DIC was calculated for a model without predictors, for two models with one of the two predictors and the hypothesized model. In table 2 the results of the analysis are given. It can be seen that the DIC is the highest for the model without the predictors. As predictors are included the DIC decreases. Its value is the lowest for the hypothesized model. This indicates that of all the models that were compared, the hypothesized model is the best model. This means that the hypothesized model is closest to the true model, relative to the models that it was compared to. The result of this analysis supports the idea that the quality of wine can be predicted by its concentration of chloride and sulphate.
+
+```{r, echo=FALSE}
+#posteriors with zero and 1 predictor, which are used for dic
+posterior1<-sampled_posterior(dataset, 3, c(2), iterations=100000, initial_values = c(1,1,1,1), burnin = 1000, seed = 123)
+posterior2<-sampled_posterior(dataset, 3, c(1), iterations=100000, initial_values = c(1,1,1,1), burnin = 1000, seed = 342)
+posterior3<-sampled_posterior(dataset, 3, iterations=100000, initial_values = c(1,1,1,1), burnin = 1000, seed = 341)
+
+
+dic_2predictors<-dic1(posterior, dataset, 3, c(1,2))
+dic_sulphate<-dic2(posterior1, dataset, 3, 2)
+dic_chloride<-dic2(posterior2, dataset, 3, c(1))
+dic_nopredictors<-dic3(posterior3, dataset, 3)
+```
+
+
+```{r, echo=FALSE}
+library(knitr)
+library(kableExtra)
+table2<-data.frame(a= c('No predictors', 'Concentration of chloride', 'Concentration of sulphate', 'Concentration of chloride & Concentration of sulphate'), b = c(3857, 3832, 3755, 3656))
+colnames(table2)<-c('Predictors', 'DIC')
+
+kable(table2, align = 'l', caption = "Table2: DIC for models with different predictors") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+```
+
+### Bayes factor
+|   The parameter estimates already gave an indication of the direction of the effects of the concentration of chloride and sulphate on the wine quality. However, we cannot make inferences solely based on the parameter estimates. Therefore the Bayes factor will be used to test the direction of the effects. Four hypotheses including different directions of the effects are tested against their complement. Table 3 provides an overview of the hypotheses together with the Bayes factors and posterior model probabilities.
+|   The One Group Approximate Adjusted Fractional Bayes Factor is used to test the competing hypotheses. A normal approximation of the posterior was used by using the maximum likelihood estimates and the resulting covariance matrix of an ordinary linear regression analysis. A fractional prior distribution was used by dividing the covariance matrix of the posterior by a fraction and using means of zero for both parameters. This fraction equals the number of independent constraints in the hypothesis, which is 2, divided by the sample size, which is 1599. So, the covariance matrix of the posterior distribution was divided by 2/1599. 
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+#the Bayes factors were computed manually, the posterior model probabilities were calculated by the bain function
+# I will explain the code of the Bayes Factor for first hypothesis, for other hypotheses the idea is the same
+library(mvtnorm) #package loaded to be aple to compute cdf for multivariate distribution using the function pmvnorm()
+model<-lm(dataset$quality~dataset$chlorides + dataset$sulphates) #fit regression model
+max_lik_estimates<-coef(model)[-1] #extract the maximumlikelihood estimates of beta1 and beta 2
+cov_matrix_posterior<-vcov(model)[-1, -1] #extract covariance matrix of beta1 and beta2
+fraction<-2/1599 #define the fraction by which covariance matrix of posterior is divided to get covariance matrix of prior
+cov_matrix_prior<-cov_matrix_posterior/fraction #covariance matrix for prior distribution
+#beta1<0 and beta2>0 is the hypothesis that is tested
+#area of posterior that is in line with hypothesis is calculated, which is the fit
+post<-pmvnorm(lower=c(-Inf,0), upper=c(0,Inf), mean=max_lik_estimates, sigma=cov_matrix_posterior)
+#area of prior that is in line with hypothesis is calculated, which is the complexity
+prior<-pmvnorm(lower=c(-Inf,0), upper=c(0,Inf), mean=c(0,0), sigma=cov_matrix_prior) #mean is zero vector in this case
+bayes_factor_ic<-(post[1]/prior[1])/((1-post[1])/(1-prior[1])) #bayes factor relative to complement is calculated
+
+#beta1>0 and beta2<0
+post1<-pmvnorm(lower=c(0,-Inf), upper=c(Inf,0), mean=max_lik_estimates, sigma=cov_matrix_posterior)
+prior1<-pmvnorm(lower=c(0,-Inf), upper=c(Inf,0), mean=c(0,0), sigma=cov_matrix_prior)
+bayes_factor_ic1<-(post1[1]/prior1[1])/((1-post1[1])/(1-prior1[1]))
+#beta1>0 and beta2>0
+post2<-pmvnorm(lower=c(0,0), upper=c(Inf,Inf), mean=max_lik_estimates, sigma=cov_matrix_posterior)
+prior2<-pmvnorm(lower=c(0,0), upper=c(Inf,Inf), mean=c(0,0), sigma=cov_matrix_prior)
+bayes_factor_ic2<-(post2[1]/prior2[1])/((1-post2[1])/(1-prior2[1]))
+
+#beta1<0 and beta1<0
+post3<-pmvnorm(lower=c(-Inf,-Inf), upper=c(0,0), mean=max_lik_estimates, sigma=cov_matrix_posterior)
+prior3<-pmvnorm(lower=c(-Inf,-Inf), upper=c(0,0), mean=c(0,0), sigma=cov_matrix_prior)
+bayes_factor_ic3<-(post3[1]/prior3[1])/((1-post3[1])/(1-prior3[1]))
+
+##posterior model probabilities calculated with bain function
+library(bain)
+resmonin<-bain(model,"chloride<0 & sulphate>0; chloride>0 & sulphate<0; chloride>0 & chloride>0; chloride<0 & sulphate<0")
+
+
+```
+
+
+```{r, echo=FALSE}
+library(knitr)
+library(kableExtra)
+table3<-data.frame(a= c('H1: Beta 1 < 0 & Beta 2 > 0',
+'H2: Beta 1 > 0 & Beta 2 < 0',
+'H3: Beta 1 > 0 & Beta 2 > 0',
+'H4: Beta 1 < 0 & Beta 2 < 0'
+), b = c(1,0,0,0), c = c(0.31, 0.31, 0.19,0.19), d=c('Inf', 0, 0,0), e = c(1,0,0,0))
+a<-expression('title'[2])
+colnames(table3) <- c("Hypothesis",	"f~i~",	"c~i~",	"Bf~ic~",	"PMP~ic~")
+kable(table3, align = 'l', caption = "Table 3: Bayes factors and posterior model probabilities") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+```
+
+|   Table 3 shows the hypotheses concerning the effects of the predictors on the dependent variable, the corresponding fit, complexity, Bayes factor and posterior model probability. The values in the column ‘Bf~ic~’ denote the support of the hypothesis relative to its complement. The value for the first hypothesis equals infinity. This does not make much sense. The reason why it equals infinity is that 100% of the posterior distribution supports the null hypothesis, as can be seen in the column ‘f~i~’. If this the case then the computation of Bf~ic~ implies a division by zero, which yields a value equal to infinity in R. An reasonable interpretation is that there is maximal support for the first hypothesis relative to its complement, given the fact that 100% of the posterior distribution supports the first hypothesis. The values in the column under ‘PMP’ give the posterior model probabilities of the hypothesis relative to its complement. The posterior model probability of 1 for the first hypothesis means that if the complement of h1 is accepted, the Bayesian error probability equals 1. The Bayes factors for the other hypotheses equal zero. There is no support for the other hypotheses whatsoever, relative to their complement. These results are extreme and strongly point to one direction.
+
+
+## Conclusion
+|   I aimed to answer the following research question: how do the concentration of chloride and the concentration of sulphate affect the quality of the wine? The posterior means and central credible interval derived from the posterior distribution indicated that the concentration of chloride and sulphate affect wine quality. Then, I tested whether the model fitted the data by testing the assumption of normally distributed residuals and comparing DICs. This also indicated that the model with the two predictors fits the data well. To come to a conclusion about the direction of the effects Bayes factors were computed. These strongly pointed to one hypothesis. The quality of wine can be predicted by the concentration of chloride and sulphate. More specifically, a higher concentration of chloride implies a lower quality and a higher concentration of sulphate implies a higher quality.
+
+### Comparison Bayesian and frequentist approaches
+|   In this section a comparison is made between frequentist methods Bayesion methods.
+
+#### Estimation
+|   An obvious difference between the Bayesian approach and the frequentist approach is that the Bayesian approach relies on sampling and the frequentist approach does not. Parameter estimates within the Bayesian framework are derived from the posterior distribution, whereas the parameters within the frequentist framework are obtained though maximum likelihood estimation. Maximum likelihood estimation solely relies on the data. The posterior distribution does not solely rely on the data, but also on prior information. Since, the parameter estimates within a Bayesian framework are derived from the posterior distribution they do not solely rely on the data. However, when no prior information is used, the posterior only relies on the likelihood of the data. Then, if no prior information is used, the posterior distribution centers around the maximum likelihood estimates of the parameters. Similarly, when no prior information is used the central credible interval and the confidence interval should resemble each other. This does not mean that they should be interpreted the same way. They are different things, but I will spare you the exact definitions. 
+|   A downside of the Bayesian approach is that it is not certain that the sampler converges to the true value. This adds extra uncertainty. Since assessing and reaching convergence can be a lot of work, it can be seen as an burden that scientists using statistics want to avoid. 
+
+#### Assumption checking
+|   I think that the way assumptions can be tested within the Bayesian framework is an improvement on the way assumptions are tested within the frequentist framework. It is common to just eyeball the residual plots after running a frequentist linear regression analysis. Based on the plot a conclusion is drawn. However, eyeballing a plot leaves much room for interpretation, which introduces subjectivity. Alternatively, within the frequentist framework assumptions can be tested by means of a significance test. However, if the sample size is large enough any deviation from the perfect situation will lead to the conclusion that the assumption is violated. This does not mean that the assumption is actually violated. The Bayesian framework provides a good alternative. It allows to compare the extent to which an assumption is met to data for which the assumption actually is met. I think that this method is superior to the frequentist methods.
+
+### Model comparison
+|   The information criterium that is used within the Bayesian framework is similar to the information criteria used within the frequentist framework. The AIC, DIC and BIC all capture complexity and fit. The big difference is that the DIC allows prior information to be used. However, prior information is inherent to the Bayesian approach. Prior information is not of concern within the frequentist approach. So the fact that the AIC and BIC cannot incorporate prior information does not make them less. The DIC on the one hand and the AIC and BIC on the other hand are called for in different situations.
+
+### Hypothesis testing
+|   Within the Bayesian framework hypotheses are tested using Bayes Factors, whereas within the frequentist framework hypotheses are tested using p-values and type-1 errors. One thing that the p-value and the Bayes Factor have in common is that they are affected by the sample size. So the sample size must be taken into account when interpreting Bayes Factors and when interpreting p-values. 
+|   A difference between the Bayes Factor and the p-value is that the Bayes Factor is a measure of support whereas the p-value is not. The p-value just tells you the probability of falsely rejecting the null hypothesis. However, I think that the latter is a beautiful thing that is being used in a wrong way. When one uses the p-value one must consider the power of the test and one must decide on the risk he or she is willing to take. One should not just compare the p-value to the magical value of 0.05. That would be an oversimplification of the world. The researcher should just state whether he or she thinks that the probability of falsely rejecting is too high or not. However, this implies that the power can be established in advance. This is likely not the case. So to be sure to have a high power a large sample size is required. The Bayesian factor allows for updating. So one can start with a small sample size and keep collecting data. If one wants to do this within the frequentist framework the alpha level has to be adjusted which leads to lower power.
+A big disadvantage of the Bayes Factor is that it points to the best hypothesis in a set of hypotheses. If all the hypotheses are bad, the Bayes Factor supports the best bad hypothesis. This could not happen within the frequentist framework because within that framework hypothesis are compared against the null hypothesis.
+In summary, there are upsides and downsides to each approach. I think one should not just choose between discipline, but should just let the particular situation one finds her- or himself in decide on the method that is used.
+
+## Reference list
+<div id="refs" custom-style="Bibliography"></div>
