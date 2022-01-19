@@ -1,5 +1,8 @@
 Readme file
 
+If all the files are kept in the same directory and the working directory in the rmd file is set to the source directory, 
+there should be no problems loading the functions.
+
 Knitting the rmd file takes 10 till 15 minutes because there is a lot of code.
 
 A bayesian regression analysis was performed and a report and the code can be found in this repository.
